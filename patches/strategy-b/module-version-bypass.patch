@@ -1,7 +1,8 @@
 diff --git a/kernel/module.c b/kernel/module.c
+index b4f7e64..11b0756 100644
 --- a/kernel/module.c
 +++ b/kernel/module.c
-@@ -1279,7 +1279,9 @@ static int check_version(const struct load_info *info,
+@@ -1279,17 +1279,18 @@ static int check_version(const struct load_info *info,
  			return 1;
  		pr_debug("Found checksum %X vs module %lX\n",
  			 crcval, versions[i].crc);
@@ -12,8 +13,10 @@ diff --git a/kernel/module.c b/kernel/module.c
  	}
  
  	/* Broken toolchain. Warn once, then let it go.. */
-@@ -1290,7 +1292,7 @@ static int check_version(const struct load_info *info,
- bad_version:
+ 	pr_warn_once("%s: no symbol version for %s\n", info->name, symname);
+ 	return 1;
+ 
+-bad_version:
  	pr_warn("%s: disagrees about version of symbol %s\n",
  	       info->name, symname);
 -	return 0;
@@ -21,8 +24,7 @@ diff --git a/kernel/module.c b/kernel/module.c
  }
  
  static inline int check_modstruct_version(const struct load_info *info,
-@@ -3316,8 +3318,8 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
- 		}
+@@ -3317,7 +3318,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
  	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
  		pr_err("%s: version magic '%s' should be '%s'\n",
  		       info->name, modmagic, vermagic);
@@ -31,4 +33,3 @@ diff --git a/kernel/module.c b/kernel/module.c
  	}
  
  	if (!get_modinfo(info, "intree")) {
-
