@@ -28,6 +28,28 @@ case "${kernel_format}" in
   *) kernel="" ;;
 esac
 
+download_magisk_apk() {
+  local version="$1"
+  local dest="$2"
+  local base="https://github.com/topjohnwu/Magisk/releases/download/${version}"
+  local candidates=(
+    "Magisk-${version}.apk"
+    "Magisk-${version#v}.apk"
+    "app-release.apk"
+    "app-debug.apk"
+  )
+  local name
+
+  for name in "${candidates[@]}"; do
+    log "magisk_apk_try=${base}/${name}"
+    if curl -fsSL "${base}/${name}" -o "${dest}"; then
+      log "magisk_apk=${name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [[ -n "${stock_boot}" && -f "${stock_boot}" && -f "${kernel}" ]]; then
   work_dir="$(mktemp -d)"
   magisk_version="${MAGISK_VERSION:-v30.7}"
@@ -36,26 +58,29 @@ if [[ -n "${stock_boot}" && -f "${stock_boot}" && -f "${kernel}" ]]; then
   out_img="${out_dir}/boot-magiskboot-${kernel_format//./-}.img"
 
   log "magiskboot_source=topjohnwu/Magisk ${magisk_version}"
-  curl -fsSL \
-    "https://github.com/topjohnwu/Magisk/releases/download/${magisk_version}/Magisk-${magisk_version#v}.apk" \
-    -o "${magisk_apk}"
-  unzip -p "${magisk_apk}" lib/x86_64/libmagiskboot.so > "${magiskboot}"
-  chmod +x "${magiskboot}"
+  if download_magisk_apk "${magisk_version}" "${magisk_apk}" &&
+     unzip -p "${magisk_apk}" lib/x86_64/libmagiskboot.so > "${magiskboot}"; then
+    chmod +x "${magiskboot}"
 
-  cp "${stock_boot}" "${work_dir}/boot.img"
-  (
-    cd "${work_dir}"
-    ./magiskboot unpack -h boot.img
-    cp "${kernel}" kernel
-    PATCHVBMETAFLAG=true ./magiskboot repack boot.img "${out_img}"
-  ) 2>&1 | tee -a "${summary}"
-
-  if [[ -f "${out_img}" ]]; then
-    log "generated_magiskboot_boot=$(basename "${out_img}")"
-    log "generated_magiskboot_boot_size=$(wc -c < "${out_img}")"
-    generated_magiskboot=1
+    cp "${stock_boot}" "${work_dir}/boot.img"
+    if (
+      cd "${work_dir}"
+      ./magiskboot unpack -h boot.img
+      cp "${kernel}" kernel
+      PATCHVBMETAFLAG=true ./magiskboot repack boot.img "${out_img}"
+    ) 2>&1 | tee -a "${summary}"; then
+      if [[ -f "${out_img}" ]]; then
+        log "generated_magiskboot_boot=$(basename "${out_img}")"
+        log "generated_magiskboot_boot_size=$(wc -c < "${out_img}")"
+        generated_magiskboot=1
+      else
+        log "generated_magiskboot_boot=missing_output"
+      fi
+    else
+      log "generated_magiskboot_boot=repack_failed"
+    fi
   else
-    log "generated_magiskboot_boot=failed"
+    log "generated_magiskboot_boot=magiskboot_unavailable"
   fi
   rm -rf "${work_dir}"
 fi
