@@ -8,40 +8,33 @@ on:
         required: true
         default: auto
         type: choice
-        options:
-          - auto
-          - A
-          - B
+        options: [auto, A, B]
       feature_set:
         description: Kernel feature set to build.
         required: true
         default: full
         type: choice
-        options:
-          - minimal
-          - droidspaces
-          - full
+        options: [minimal, droidspaces, full]
       gki_tag:
         description: Android common kernel tag to build.
         required: true
         default: android13-5.15-2025-12_r5
       kernel_format:
-        description: Kernel image format for AnyKernel3 zip and generated boot.img.
+        description: Kernel image format for AnyKernel3 zip and boot repack.
         required: true
-        default: Image.gz
+        default: Image
         type: choice
-        options:
-          - Image
-          - Image.gz
-          - Image.lz4
+        options: [Image, Image.gz, Image.lz4]
+      stock_boot_url:
+        description: Optional direct URL to stock boot.img template for fastboot flashable boot-stock-template-*.img.
+        required: false
+        default: ""
       create_release:
         description: Create GitHub prerelease with artifacts.
         required: true
         default: "true"
         type: choice
-        options:
-          - "true"
-          - "false"
+        options: ["true", "false"]
 
 permissions:
   contents: write
@@ -85,9 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential curl flex git libelf-dev libssl-dev \
-            lz4 python3 rsync unzip wget zip
+          sudo apt-get install -y bc bison build-essential curl flex git libelf-dev libssl-dev lz4 python3 rsync unzip wget zip
           mkdir -p "${HOME}/bin"
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo > "${HOME}/bin/repo"
           chmod a+x "${HOME}/bin/repo"
@@ -139,6 +130,7 @@ jobs:
         shell: bash
         env:
           KERNEL_FORMAT: ${{ steps.vars.outputs.kernel_format }}
+          STOCK_BOOT_URL: ${{ inputs.stock_boot_url }}
         run: |
           set -euo pipefail
           dist="${GITHUB_WORKSPACE}/workspace/out/kernel_aarch64/dist"
@@ -146,52 +138,36 @@ jobs:
           reports="${artifacts}/reports"
           mkdir -p "${artifacts}" "${reports}"
 
-          if [[ ! -f "${dist}/Image.gz" ]]; then
-            gzip -cn "${dist}/Image" > "${dist}/Image.gz"
-          fi
-          if [[ ! -f "${dist}/Image.lz4" ]]; then
-            lz4 -12 -l "${dist}/Image" "${dist}/Image.lz4"
-          fi
+          if [[ ! -f "${dist}/Image.gz" ]]; then gzip -cn "${dist}/Image" > "${dist}/Image.gz"; fi
+          if [[ ! -f "${dist}/Image.lz4" ]]; then lz4 -12 -l "${dist}/Image" "${dist}/Image.lz4"; fi
+
           if [[ ! -f "${dist}/Module.symvers" ]]; then
             symvers_path="$(find "${GITHUB_WORKSPACE}/workspace" -type f \( -name 'Module.symvers' -o -name '*Module.symvers' -o -name 'vmlinux.symvers' \) | head -n 1 || true)"
-            if [[ -n "${symvers_path}" ]]; then
-              cp "${symvers_path}" "${dist}/Module.symvers"
-            else
-              echo "Module.symvers was not found in workspace output" > "${dist}/Module.symvers"
-            fi
+            if [[ -n "${symvers_path}" ]]; then cp "${symvers_path}" "${dist}/Module.symvers"; else echo "Module.symvers was not found in workspace output" > "${dist}/Module.symvers"; fi
           fi
+
           config_path="$(find "${GITHUB_WORKSPACE}/workspace/out" -type f \( -name '.config' -o -name 'kernel.config' -o -name 'kernel_aarch64_config' \) | head -n 1 || true)"
-          if [[ -n "${config_path}" ]]; then
-            cp "${config_path}" "${artifacts}/kernel.config"
-            cp "${config_path}" "${dist}/kernel.config"
-          else
-            echo "kernel config was not found in workspace/out" > "${artifacts}/kernel.config"
-            cp "${artifacts}/kernel.config" "${dist}/kernel.config"
-          fi
+          if [[ -n "${config_path}" ]]; then cp "${config_path}" "${artifacts}/kernel.config"; cp "${config_path}" "${dist}/kernel.config"; else echo "kernel config was not found in workspace/out" > "${artifacts}/kernel.config"; cp "${artifacts}/kernel.config" "${dist}/kernel.config"; fi
 
           cp "${dist}/Image" "${artifacts}/Image"
           cp "${dist}/Image.gz" "${artifacts}/Image.gz"
           cp "${dist}/Image.lz4" "${artifacts}/Image.lz4"
           cp "${dist}/Module.symvers" "${artifacts}/Module.symvers"
 
-          python3 "${GITHUB_WORKSPACE}/scripts/generate_reports.py" \
-            "${{ steps.vars.outputs.strategy }}" \
-            "${dist}" \
-            "${GITHUB_WORKSPACE}/data" \
-            "${reports}" \
-            "${{ steps.vars.outputs.gki_tag }}"
+          stock_boot=""
+          if [[ -n "${STOCK_BOOT_URL}" ]]; then
+            stock_boot="${artifacts}/stock-boot-template.img"
+            curl -fL "${STOCK_BOOT_URL}" -o "${stock_boot}"
+          fi
 
-          bash "${GITHUB_WORKSPACE}/scripts/package_anykernel.sh" \
-            "${{ steps.vars.outputs.strategy }}" \
-            "${dist}" \
-            "${GITHUB_WORKSPACE}" \
-            "${artifacts}"
+          python3 "${GITHUB_WORKSPACE}/scripts/generate_reports.py" \
+            "${{ steps.vars.outputs.strategy }}" "${dist}" "${GITHUB_WORKSPACE}/data" "${reports}" "${{ steps.vars.outputs.gki_tag }}"
+
+          KERNEL_FORMAT="${KERNEL_FORMAT}" bash "${GITHUB_WORKSPACE}/scripts/package_anykernel.sh" \
+            "${{ steps.vars.outputs.strategy }}" "${dist}" "${GITHUB_WORKSPACE}" "${artifacts}"
 
           bash "${GITHUB_WORKSPACE}/scripts/collect_fastboot_boot_images.sh" \
-            "${dist}" \
-            "${artifacts}" \
-            "${reports}" \
-            "${KERNEL_FORMAT}"
+            "${dist}" "${artifacts}" "${reports}" "${KERNEL_FORMAT}" "${stock_boot}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -208,19 +184,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(
-            artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip
-            artifacts/Image
-            artifacts/Image.gz
-            artifacts/Image.lz4
-            artifacts/Module.symvers
-            artifacts/kernel.config
-            artifacts/boot*.img
-            artifacts/*boot*.img
-            artifacts/reports/*.txt
-          )
-          gh release create "${{ steps.vars.outputs.tag_name }}" \
-            "${assets[@]}" \
+          assets=(artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip artifacts/Image artifacts/Image.gz artifacts/Image.lz4 artifacts/Module.symvers artifacts/kernel.config artifacts/boot*.img artifacts/*boot*.img artifacts/reports/*.txt)
+          gh release create "${{ steps.vars.outputs.tag_name }}" "${assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --prerelease \
