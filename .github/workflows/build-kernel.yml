@@ -173,6 +173,11 @@ jobs:
           ./scripts/config --file arch/arm64/configs/gki_defconfig --disable LOCALVERSION_AUTO
           ./scripts/config --file arch/arm64/configs/gki_defconfig --disable MODULE_SIG_FORCE
 
+          tmp_config_out="$(mktemp -d)"
+          make -C . ARCH=arm64 O="${tmp_config_out}" gki_defconfig savedefconfig
+          cp "${tmp_config_out}/defconfig" arch/arm64/configs/gki_defconfig
+          rm -rf "${tmp_config_out}"
+
       - name: Build kernel
         shell: bash
         run: |
