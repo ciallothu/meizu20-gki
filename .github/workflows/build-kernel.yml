@@ -212,6 +212,14 @@ jobs:
           if [[ ! -f "${dist}/Image.gz" ]]; then
             gzip -cn "${dist}/Image" > "${dist}/Image.gz"
           fi
+          if [[ ! -f "${dist}/Module.symvers" ]]; then
+            symvers_path="$(find "${GITHUB_WORKSPACE}/workspace" -type f \( -name 'Module.symvers' -o -name '*Module.symvers' -o -name 'vmlinux.symvers' \) | head -n 1 || true)"
+            if [[ -n "${symvers_path}" ]]; then
+              cp "${symvers_path}" "${dist}/Module.symvers"
+            else
+              echo "Module.symvers was not found in workspace output" > "${dist}/Module.symvers"
+            fi
+          fi
           config_path="$(find "${GITHUB_WORKSPACE}/workspace/out" -type f \( -name '.config' -o -name 'kernel.config' -o -name 'kernel_aarch64_config' \) | head -n 1)"
           if [[ -n "${config_path}" ]]; then
             cp "${config_path}" "${artifacts}/kernel.config"
