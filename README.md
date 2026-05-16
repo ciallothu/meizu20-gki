@@ -1,8 +1,9 @@
 # Meizu 20 GKI A/B kernel builds
 
-This repository builds experimental Meizu 20 GKI kernels with SukiSU Ultra,
-SUSFS, and the Droidspaces kernel features that are disabled in the stock
-kernel.
+This repository builds experimental Meizu 20 GKI kernels. The default build is
+a stock-like compatibility baseline pinned to the same 5.15.119 Android common
+kernel family as the device, with Meizu CRC/module compatibility handled before
+adding Droidspaces, SukiSU Ultra, or SUSFS.
 
 The build runs on GitHub Actions only. Release artifacts are AnyKernel3 zip
 packages plus raw `Image` / `Image.gz` and diagnostics. Stock `boot.img`,
@@ -37,16 +38,23 @@ exist, branch A focuses on CRC/export matching while preserving strict checks.
   stock-style `uname -r`, and applies pre-build CRC overrides through
   `genksyms` so generated kernel CRC tables can match extracted stock CRCs
   where symbol names overlap.
-- `B`: same kernel features, SukiSU Ultra, and SUSFS, but patches module loading
-  to accept vermagic and CRC mismatches while keeping warning logs.
+- `B`: same selected feature set, but patches module loading to accept vermagic
+  and CRC mismatches while keeping warning logs.
 
 ## Running builds
 
 Use GitHub Actions manually:
 
 ```sh
-gh workflow run build-kernel.yml -r A -f strategy=A
-gh workflow run build-kernel.yml -r B -f strategy=B
+gh workflow run build-kernel.yml -r A -f strategy=A -f feature_set=compat
+gh workflow run build-kernel.yml -r B -f strategy=B -f feature_set=compat
+```
+
+`minimal` is available only as a packaging and early boot-chain sanity check:
+
+```sh
+gh workflow run build-kernel.yml -r A -f strategy=A -f feature_set=minimal
+gh workflow run build-kernel.yml -r B -f strategy=B -f feature_set=minimal
 ```
 
 Successful runs create a pre-release named:
@@ -60,13 +68,16 @@ Each release contains:
 - `AnyKernel3-Meizu20-A.zip` or `AnyKernel3-Meizu20-B.zip`
 - `Image`
 - `Image.gz`
+- `Image.lz4`
+- fastboot boot image when stock boot repacking succeeds
 - `Module.symvers`
 - `kernel.config`
 - reports under `reports/`
 
 ## Flashing note
 
-These builds are experimental. Test with a recoverable path first and keep one
-slot on a known-good stock boot chain. The package only replaces the boot
+These builds are experimental. Test `feature_set=compat` first because the
+closed-source Meizu vendor modules need either matching CRCs or the branch B
+loader bypass. Only move to `droidspaces` or `full` after the compatibility
+kernel reaches Android userspace. The AnyKernel package only replaces the boot
 kernel and leaves `vendor_boot`, `dtbo`, and `vendor_dlkm` untouched.
-

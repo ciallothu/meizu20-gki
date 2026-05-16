@@ -108,6 +108,10 @@ case "${feature_set}" in
   minimal)
     echo "[feature_set=minimal] Build plain GKI plus local version only."
     ;;
+  compat)
+    echo "[feature_set=compat] Build stock-like GKI with Meizu CRC/module compatibility only."
+    apply_crc_support
+    ;;
   droidspaces)
     echo "[feature_set=droidspaces] Build Droidspaces namespace/devtmpfs features without KSU/SUSFS."
     apply_crc_support
@@ -120,7 +124,7 @@ case "${feature_set}" in
     apply_fragment_file
     ;;
   *)
-    echo "Unsupported feature_set=${feature_set}. Use minimal, droidspaces, or full." >&2
+    echo "Unsupported feature_set=${feature_set}. Use minimal, compat, droidspaces, or full." >&2
     exit 1
     ;;
 esac
