@@ -9,9 +9,9 @@ do.cleanup=1
 do.cleanuponabort=0
 device.name1=meizu20
 device.name2=M2381
-device.name3=
-device.name4=
-device.name5=
+device.name3=m2381
+device.name4=M381Q
+device.name5=m381q
 supported.versions=13 - 16
 supported.patchlevels=
 supported.vendorpatchlevels=
@@ -24,6 +24,7 @@ patch_vbmeta_flag=auto;
 
 . tools/ak3-core.sh;
 
-dump_boot;
-write_boot;
-
+# Android 13+ launch devices keep the generic ramdisk in init_boot.
+# Meizu 20 boot is expected to be kernel-only, so avoid ramdisk unpack/repack.
+split_boot;
+flash_boot;
