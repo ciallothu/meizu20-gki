@@ -117,10 +117,25 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path("BUILD.bazel")
           text = path.read_text()
           text = text.replace("check_defconfig = True", "check_defconfig = False")
           path.write_text(text)
+
+          kleaf = Path("../build/kernel/kleaf/common_kernels.bzl")
+          text = kleaf.read_text()
+          text, count = re.subn(
+              r'check_defconfig = select\(\{.*?\}\),',
+              'check_defconfig = "disabled",',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit("failed to disable Kleaf common kernel defconfig check")
+          kleaf.write_text(text)
           PY
 
           while IFS= read -r line; do
@@ -140,6 +155,8 @@ jobs:
 
           git add -A
           git commit -m "Apply Meizu 20 SukiSU SUSFS integration" || true
+          git -C ../build add kernel/kleaf/common_kernels.bzl
+          git -C ../build commit -m "Disable common kernel defconfig check for Meizu build" || true
 
       - name: Build kernel
         shell: bash
