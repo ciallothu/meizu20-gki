@@ -12,12 +12,21 @@ on:
           - auto
           - A
           - B
+      feature_set:
+        description: Kernel feature set to build.
+        required: true
+        default: full
+        type: choice
+        options:
+          - minimal
+          - droidspaces
+          - full
       gki_tag:
         description: Android common kernel tag to build.
         required: true
         default: android13-5.15-2025-12_r5
       kernel_format:
-        description: Kernel image format to include in AnyKernel3 zip.
+        description: Kernel image format for AnyKernel3 zip and generated boot.img.
         required: true
         default: Image.gz
         type: choice
@@ -39,7 +48,7 @@ permissions:
 
 jobs:
   build:
-    name: Build strategy ${{ inputs.strategy }} on ${{ github.ref_name }}
+    name: Build ${{ inputs.feature_set }} strategy ${{ inputs.strategy }} on ${{ github.ref_name }}
     runs-on: ubuntu-22.04
     timeout-minutes: 360
 
@@ -47,7 +56,7 @@ jobs:
       - name: Checkout build recipe
         uses: actions/checkout@v4
 
-      - name: Resolve build strategy
+      - name: Resolve build variables
         id: vars
         shell: bash
         run: |
@@ -64,8 +73,9 @@ jobs:
             exit 1
           fi
           short_sha="${GITHUB_SHA::7}"
-          tag_name="pr-${GITHUB_RUN_NUMBER}-${short_sha}"
+          tag_name="pr-${GITHUB_RUN_NUMBER}-${short_sha}-${{ inputs.feature_set }}-${strategy}"
           echo "strategy=${strategy}" >> "${GITHUB_OUTPUT}"
+          echo "feature_set=${{ inputs.feature_set }}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
           echo "gki_tag=${{ inputs.gki_tag }}" >> "${GITHUB_OUTPUT}"
           echo "kernel_format=${{ inputs.kernel_format }}" >> "${GITHUB_OUTPUT}"
@@ -97,105 +107,15 @@ jobs:
           git fetch --depth=1 https://android.googlesource.com/kernel/common "refs/tags/${{ steps.vars.outputs.gki_tag }}"
           git checkout FETCH_HEAD
 
-      - name: Integrate SukiSU Ultra, SUSFS, and Meizu config
+      - name: Integrate selected kernel features
         shell: bash
         run: |
           set -euo pipefail
-          common="${GITHUB_WORKSPACE}/workspace/common"
-          cd "${common}"
-
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-          rm -rf KernelSU/.git
-          test -f drivers/kernelsu/Kconfig
-
-          susfs="${GITHUB_WORKSPACE}/workspace/susfs"
-          git clone --depth=1 -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git "${susfs}"
-          cp -r "${susfs}/kernel_patches/fs/"* fs/
-          cp -r "${susfs}/kernel_patches/include/linux/"* include/linux/
-          patch -p1 --forward --batch < "${susfs}/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          (
-            cd KernelSU
-            patch -p1 --forward --batch < "${susfs}/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-          )
-
-          python3 "${GITHUB_WORKSPACE}/scripts/apply_crc_override_patch.py" "${common}"
-          cp "${GITHUB_WORKSPACE}/data/original_crcs.tsv" .meizu_crc_overrides.tsv
-
-          if [[ "${{ steps.vars.outputs.strategy }}" == "B" ]]; then
-            patch -p1 --forward --batch < "${GITHUB_WORKSPACE}/patches/strategy-b/module-version-bypass.patch"
-          fi
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("BUILD.bazel")
-          text = path.read_text()
-          text = text.replace("check_defconfig = True", "check_defconfig = False")
-          path.write_text(text)
-
-          kleaf = Path("../build/kernel/kleaf/common_kernels.bzl")
-          text = kleaf.read_text()
-          text, count = re.subn(
-              r'check_defconfig = select\(\{.*?\}\),',
-              'check_defconfig = "disabled",',
-              text,
-              count=1,
-              flags=re.S,
-          )
-          text = text.replace(
-              '"kmi_symbol_list_strict_mode": aarch64_trim_and_check,',
-              '"kmi_symbol_list_strict_mode": False,',
-          )
-          kleaf.write_text(text)
-
-          kernel_config = Path("../build/kernel/kleaf/impl/kernel_config.bzl")
-          text = kernel_config.read_text()
-          text = text.replace(
-              'if check_defconfig_attr_value != "minimized":',
-              'if True or check_defconfig_attr_value != "minimized":',
-              1,
-          )
-          text = text.replace(
-              'if check_defconfig_attr_value == "disabled":',
-              'if True or check_defconfig_attr_value == "disabled":',
-              1,
-          )
-          kernel_config.write_text(text)
-
-          build_utils = Path("../build/kernel/build_utils.sh")
-          with build_utils.open("a") as f:
-              f.write(
-                  "\n# Meizu 20 Actions build: allow generated GKI defconfig fragments.\\n"
-                  "kleaf_internal_check_defconfig_minimized() { return 0; }\\n"
-                  "kleaf_internal_check_dot_config_against_defconfig() { return 0; }\\n"
-              )
-          PY
-
-          while IFS= read -r line; do
-            [[ -z "${line}" || "${line}" == \#* && "${line}" != "# CONFIG_"* ]] && continue
-            if [[ "${line}" =~ ^CONFIG_([^=]+)=y$ ]]; then
-              ./scripts/config --file arch/arm64/configs/gki_defconfig --enable "${BASH_REMATCH[1]}"
-            elif [[ "${line}" =~ ^CONFIG_([^=]+)=m$ ]]; then
-              ./scripts/config --file arch/arm64/configs/gki_defconfig --module "${BASH_REMATCH[1]}"
-            elif [[ "${line}" =~ ^#\ CONFIG_([^[:space:]]+)\ is\ not\ set$ ]]; then
-              ./scripts/config --file arch/arm64/configs/gki_defconfig --disable "${BASH_REMATCH[1]}"
-            fi
-          done < "${GITHUB_WORKSPACE}/data/meizu20.fragment"
-
-          ./scripts/config --file arch/arm64/configs/gki_defconfig --set-str LOCALVERSION "-android13-8-gdae8b7f03305-ab1764128685"
-          ./scripts/config --file arch/arm64/configs/gki_defconfig --disable LOCALVERSION_AUTO
-          ./scripts/config --file arch/arm64/configs/gki_defconfig --disable MODULE_SIG_FORCE
-
-          tmp_config_out="$(mktemp -d)"
-          make -C . ARCH=arm64 O="${tmp_config_out}" gki_defconfig savedefconfig
-          cp "${tmp_config_out}/defconfig" arch/arm64/configs/gki_defconfig
-          rm -rf "${tmp_config_out}"
-
-          # Prevent local patch state from leaking into the kernel release string as -dirty/-maybe-dirty.
-          git add -A
-          git commit -m "Apply Meizu 20 local GKI patches" || true
-          git status --short
+          bash "${GITHUB_WORKSPACE}/scripts/integrate_kernel_features.sh" \
+            "${{ steps.vars.outputs.feature_set }}" \
+            "${{ steps.vars.outputs.strategy }}" \
+            "${GITHUB_WORKSPACE}/workspace/common" \
+            "${GITHUB_WORKSPACE}"
 
       - name: Build kernel
         shell: bash
@@ -240,7 +160,7 @@ jobs:
               echo "Module.symvers was not found in workspace output" > "${dist}/Module.symvers"
             fi
           fi
-          config_path="$(find "${GITHUB_WORKSPACE}/workspace/out" -type f \( -name '.config' -o -name 'kernel.config' -o -name 'kernel_aarch64_config' \) | head -n 1)"
+          config_path="$(find "${GITHUB_WORKSPACE}/workspace/out" -type f \( -name '.config' -o -name 'kernel.config' -o -name 'kernel_aarch64_config' \) | head -n 1 || true)"
           if [[ -n "${config_path}" ]]; then
             cp "${config_path}" "${artifacts}/kernel.config"
             cp "${config_path}" "${dist}/kernel.config"
@@ -267,10 +187,16 @@ jobs:
             "${GITHUB_WORKSPACE}" \
             "${artifacts}"
 
+          bash "${GITHUB_WORKSPACE}/scripts/collect_fastboot_boot_images.sh" \
+            "${dist}" \
+            "${artifacts}" \
+            "${reports}" \
+            "${KERNEL_FORMAT}"
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Meizu20-GKI-${{ steps.vars.outputs.strategy }}-${{ github.run_number }}
+          name: Meizu20-GKI-${{ steps.vars.outputs.feature_set }}-${{ steps.vars.outputs.strategy }}-${{ github.run_number }}
           path: artifacts/**
           if-no-files-found: error
 
@@ -281,16 +207,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
+          assets=(
+            artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip
+            artifacts/Image
+            artifacts/Image.gz
+            artifacts/Image.lz4
+            artifacts/Module.symvers
+            artifacts/kernel.config
+            artifacts/boot*.img
+            artifacts/*boot*.img
+            artifacts/reports/*.txt
+          )
           gh release create "${{ steps.vars.outputs.tag_name }}" \
-            artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip \
-            artifacts/Image \
-            artifacts/Image.gz \
-            artifacts/Image.lz4 \
-            artifacts/Module.symvers \
-            artifacts/kernel.config \
-            artifacts/reports/*.txt \
+            "${assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --prerelease \
-            --title "${{ steps.vars.outputs.tag_name }} strategy ${{ steps.vars.outputs.strategy }}" \
+            --title "${{ steps.vars.outputs.tag_name }}" \
             --notes-file "artifacts/reports/release-notes.md"
