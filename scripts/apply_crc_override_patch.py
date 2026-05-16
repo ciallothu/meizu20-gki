@@ -97,12 +97,29 @@ def patch_genksyms(common: Path) -> None:
     path.write_text(text)
 
 
+def patch_makefile_build(common: Path) -> None:
+    path = common / "scripts/Makefile.build"
+    text = path.read_text()
+    needle = "    scripts/genksyms/genksyms $(if $(1), -T $(2))"
+    replacement = (
+        "    KBUILD_CRC_OVERRIDES=\"$(srctree)/.meizu_crc_overrides.tsv\" "
+        "scripts/genksyms/genksyms $(if $(1), -T $(2))"
+    )
+    if text.count(replacement) == 2:
+        return
+    if needle not in text:
+        raise SystemExit(f"cannot find genksyms command in {path}")
+    text = text.replace(needle, replacement)
+    path.write_text(text)
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: apply_crc_override_patch.py <common-dir>")
-    patch_genksyms(Path(sys.argv[1]))
+    common = Path(sys.argv[1])
+    patch_genksyms(common)
+    patch_makefile_build(common)
 
 
 if __name__ == "__main__":
     main()
-
