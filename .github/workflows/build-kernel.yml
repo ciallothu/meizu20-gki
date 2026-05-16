@@ -165,23 +165,20 @@ jobs:
           ./scripts/config --file arch/arm64/configs/gki_defconfig --disable LOCALVERSION_AUTO
           ./scripts/config --file arch/arm64/configs/gki_defconfig --disable MODULE_SIG_FORCE
 
-          git add -A
-          git commit -m "Apply Meizu 20 SukiSU SUSFS integration" || true
-          git -C ../build add kernel/kleaf/common_kernels.bzl kernel/kleaf/impl/kernel_config.bzl
-          git -C ../build commit -m "Disable common kernel defconfig check for Meizu build" || true
-
       - name: Build kernel
         shell: bash
         run: |
           set -euo pipefail
           cd workspace
+          crc_overrides="${GITHUB_WORKSPACE}/workspace/common/.meizu_crc_overrides.tsv"
           tools/bazel build \
+            --config=local \
             --verbose_failures \
             --action_env=KBUILD_BUILD_VERSION=1 \
             --action_env=KBUILD_BUILD_USER=build-user \
             --action_env=KBUILD_BUILD_HOST=build-host \
             --action_env=KBUILD_BUILD_TIMESTAMP="Tue Jan 27 20:32:22 UTC 2026" \
-            --action_env=KBUILD_CRC_OVERRIDES=.meizu_crc_overrides.tsv \
+            --action_env=KBUILD_CRC_OVERRIDES="${crc_overrides}" \
             //common:kernel_aarch64_dist
 
       - name: Prepare artifacts and reports
