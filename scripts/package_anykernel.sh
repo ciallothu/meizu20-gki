@@ -5,7 +5,7 @@ strategy="$1"
 dist_dir="$2"
 repo_root="$3"
 out_dir="$4"
-kernel_format="${KERNEL_FORMAT:-Image.gz}"
+kernel_format="${KERNEL_FORMAT:-Image}"
 
 ak_dir="${out_dir}/AnyKernel3-${strategy}"
 zip_name="${out_dir}/AnyKernel3-Meizu20-${strategy}.zip"
