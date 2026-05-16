@@ -188,7 +188,9 @@ jobs:
           set -euo pipefail
           cd workspace
           crc_overrides="${GITHUB_WORKSPACE}/workspace/common/.meizu_crc_overrides.tsv"
-          tools/bazel build \
+          dist="${GITHUB_WORKSPACE}/workspace/out/kernel_aarch64/dist"
+          mkdir -p "${dist}"
+          tools/bazel run \
             --config=local \
             --verbose_failures \
             --action_env=KBUILD_BUILD_VERSION=1 \
@@ -196,7 +198,7 @@ jobs:
             --action_env=KBUILD_BUILD_HOST=build-host \
             --action_env=KBUILD_BUILD_TIMESTAMP="Tue Jan 27 20:32:22 UTC 2026" \
             --action_env=KBUILD_CRC_OVERRIDES="${crc_overrides}" \
-            //common:kernel_aarch64_dist
+            //common:kernel_aarch64_dist -- --dist_dir="${dist}"
 
       - name: Prepare artifacts and reports
         shell: bash
