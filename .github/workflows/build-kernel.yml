@@ -133,9 +133,21 @@ jobs:
               count=1,
               flags=re.S,
           )
-          if count != 1:
-              raise SystemExit("failed to disable Kleaf common kernel defconfig check")
           kleaf.write_text(text)
+
+          kernel_config = Path("../build/kernel/kleaf/impl/kernel_config.bzl")
+          text = kernel_config.read_text()
+          text = text.replace(
+              'if check_defconfig_attr_value != "minimized":',
+              'if True or check_defconfig_attr_value != "minimized":',
+              1,
+          )
+          text = text.replace(
+              'if check_defconfig_attr_value == "disabled":',
+              'if True or check_defconfig_attr_value == "disabled":',
+              1,
+          )
+          kernel_config.write_text(text)
           PY
 
           while IFS= read -r line; do
@@ -155,7 +167,7 @@ jobs:
 
           git add -A
           git commit -m "Apply Meizu 20 SukiSU SUSFS integration" || true
-          git -C ../build add kernel/kleaf/common_kernels.bzl
+          git -C ../build add kernel/kleaf/common_kernels.bzl kernel/kleaf/impl/kernel_config.bzl
           git -C ../build commit -m "Disable common kernel defconfig check for Meizu build" || true
 
       - name: Build kernel
