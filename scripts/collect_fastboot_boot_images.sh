@@ -4,7 +4,8 @@ set -euo pipefail
 dist_dir="${1:?dist dir is required}"
 out_dir="${2:?artifact dir is required}"
 reports_dir="${3:?reports dir is required}"
-kernel_format="${4:-Image.gz}"
+kernel_format="${4:-Image}"
+stock_boot="${5:-}"
 
 mkdir -p "${out_dir}" "${reports_dir}"
 summary="${reports_dir}/fastboot-boot-summary.txt"
@@ -16,6 +17,23 @@ log() {
 
 log "kernel_format=${kernel_format}"
 log "dist_dir=${dist_dir}"
+log "stock_boot=${stock_boot:-<none>}"
+
+case "${kernel_format}" in
+  Image) kernel="${dist_dir}/Image" ;;
+  Image.gz) kernel="${dist_dir}/Image.gz" ;;
+  Image.lz4) kernel="${dist_dir}/Image.lz4" ;;
+  *) kernel="" ;;
+esac
+
+if [[ -n "${stock_boot}" && -f "${stock_boot}" && -f "${kernel}" ]]; then
+  out_img="${out_dir}/boot-stock-template-${kernel_format//./-}.img"
+  python3 "${GITHUB_WORKSPACE}/scripts/repack_bootimg_kernel.py" \
+    "${stock_boot}" \
+    "${kernel}" \
+    "${out_img}" | tee -a "${summary}"
+  log "generated_stock_template_boot=$(basename "${out_img}")"
+fi
 
 copied=0
 while IFS= read -r -d '' img; do
@@ -29,13 +47,6 @@ while IFS= read -r -d '' img; do
   esac
 done < <(find "${dist_dir}" -maxdepth 1 -type f -name '*boot*.img' -print0 | sort -z)
 
-case "${kernel_format}" in
-  Image) kernel="${dist_dir}/Image" ;;
-  Image.gz) kernel="${dist_dir}/Image.gz" ;;
-  Image.lz4) kernel="${dist_dir}/Image.lz4" ;;
-  *) kernel="" ;;
-esac
-
 if [[ "${copied}" -eq 0 ]]; then
   log "copied_dist_boot=0"
   mkbootimg_py="$(find "${GITHUB_WORKSPACE:-${PWD}}/workspace" -type f -name mkbootimg.py | head -n 1 || true)"
@@ -45,7 +56,7 @@ if [[ "${copied}" -eq 0 ]]; then
       --header_version 4 \
       --kernel "${kernel}" \
       --os_version 13.0.0 \
-      --os_patch_level 2026-01 \
+      --os_patch_level 2023-10 \
       --output "${out_img}"
     log "generated_generic_boot=$(basename "${out_img}")"
   else
@@ -55,4 +66,4 @@ if [[ "${copied}" -eq 0 ]]; then
   fi
 fi
 
-log "note=Fastboot boot images here are generic/dist boot artifacts. The safest device-specific boot.img is still produced by repacking the stock boot_a/boot_b image with the selected kernel."
+log "note=Prefer boot-stock-template-*.img when a stock boot template is provided. Generic boot images are fallback artifacts and may not preserve every OEM boot field."
