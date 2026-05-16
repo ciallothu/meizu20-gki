@@ -20,15 +20,11 @@ on:
         required: true
         default: android13-5.15-2025-12_r5
       kernel_format:
-        description: Kernel image format for AnyKernel3 zip and boot repack.
+        description: Kernel image format for AnyKernel3 zip and stock boot repack.
         required: true
         default: Image
         type: choice
         options: [Image, Image.gz, Image.lz4]
-      stock_boot_url:
-        description: Optional direct URL to stock boot.img template for fastboot flashable boot-stock-template-*.img.
-        required: false
-        default: ""
       create_release:
         description: Create GitHub prerelease with artifacts.
         required: true
@@ -46,8 +42,10 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout build recipe
+      - name: Checkout build recipe and LFS boot template
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Resolve build variables
         id: vars
@@ -78,7 +76,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential curl flex git libelf-dev libssl-dev lz4 python3 rsync unzip wget zip
+          sudo apt-get install -y bc bison build-essential curl flex git git-lfs libelf-dev libssl-dev lz4 python3 rsync unzip wget zip
+          git lfs install --local
+          git lfs pull --include="data/official_boot.img"
           mkdir -p "${HOME}/bin"
           curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo > "${HOME}/bin/repo"
           chmod a+x "${HOME}/bin/repo"
@@ -130,7 +130,6 @@ jobs:
         shell: bash
         env:
           KERNEL_FORMAT: ${{ steps.vars.outputs.kernel_format }}
-          STOCK_BOOT_URL: ${{ inputs.stock_boot_url }}
         run: |
           set -euo pipefail
           dist="${GITHUB_WORKSPACE}/workspace/out/kernel_aarch64/dist"
@@ -154,10 +153,14 @@ jobs:
           cp "${dist}/Image.lz4" "${artifacts}/Image.lz4"
           cp "${dist}/Module.symvers" "${artifacts}/Module.symvers"
 
-          stock_boot=""
-          if [[ -n "${STOCK_BOOT_URL}" ]]; then
-            stock_boot="${artifacts}/stock-boot-template.img"
-            curl -fL "${STOCK_BOOT_URL}" -o "${stock_boot}"
+          stock_boot="${GITHUB_WORKSPACE}/data/official_boot.img"
+          if [[ ! -f "${stock_boot}" ]]; then
+            echo "Missing stock boot template: ${stock_boot}" >&2
+            exit 1
+          fi
+          if [[ "$(head -c 8 "${stock_boot}")" != "ANDROID!" ]]; then
+            echo "data/official_boot.img is not a real Android boot image. Check that Git LFS pulled the binary, not the pointer file." >&2
+            exit 1
           fi
 
           python3 "${GITHUB_WORKSPACE}/scripts/generate_reports.py" \
