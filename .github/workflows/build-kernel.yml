@@ -15,7 +15,16 @@ on:
       gki_tag:
         description: Android common kernel tag to build.
         required: true
-        default: android13-5.15-2023-09_r1
+        default: android13-5.15-2025-12_r5
+      kernel_format:
+        description: Kernel image format to include in AnyKernel3 zip.
+        required: true
+        default: Image.gz
+        type: choice
+        options:
+          - Image
+          - Image.gz
+          - Image.lz4
       create_release:
         description: Create GitHub prerelease with artifacts.
         required: true
@@ -59,6 +68,7 @@ jobs:
           echo "strategy=${strategy}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
           echo "gki_tag=${{ inputs.gki_tag }}" >> "${GITHUB_OUTPUT}"
+          echo "kernel_format=${{ inputs.kernel_format }}" >> "${GITHUB_OUTPUT}"
 
       - name: Install host dependencies
         shell: bash
@@ -182,6 +192,11 @@ jobs:
           cp "${tmp_config_out}/defconfig" arch/arm64/configs/gki_defconfig
           rm -rf "${tmp_config_out}"
 
+          # Prevent local patch state from leaking into the kernel release string as -dirty/-maybe-dirty.
+          git add -A
+          git commit -m "Apply Meizu 20 local GKI patches" || true
+          git status --short
+
       - name: Build kernel
         shell: bash
         run: |
@@ -202,6 +217,8 @@ jobs:
 
       - name: Prepare artifacts and reports
         shell: bash
+        env:
+          KERNEL_FORMAT: ${{ steps.vars.outputs.kernel_format }}
         run: |
           set -euo pipefail
           dist="${GITHUB_WORKSPACE}/workspace/out/kernel_aarch64/dist"
@@ -211,6 +228,9 @@ jobs:
 
           if [[ ! -f "${dist}/Image.gz" ]]; then
             gzip -cn "${dist}/Image" > "${dist}/Image.gz"
+          fi
+          if [[ ! -f "${dist}/Image.lz4" ]]; then
+            lz4 -12 -l "${dist}/Image" "${dist}/Image.lz4"
           fi
           if [[ ! -f "${dist}/Module.symvers" ]]; then
             symvers_path="$(find "${GITHUB_WORKSPACE}/workspace" -type f \( -name 'Module.symvers' -o -name '*Module.symvers' -o -name 'vmlinux.symvers' \) | head -n 1 || true)"
@@ -231,6 +251,7 @@ jobs:
 
           cp "${dist}/Image" "${artifacts}/Image"
           cp "${dist}/Image.gz" "${artifacts}/Image.gz"
+          cp "${dist}/Image.lz4" "${artifacts}/Image.lz4"
           cp "${dist}/Module.symvers" "${artifacts}/Module.symvers"
 
           python3 "${GITHUB_WORKSPACE}/scripts/generate_reports.py" \
@@ -264,6 +285,7 @@ jobs:
             artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip \
             artifacts/Image \
             artifacts/Image.gz \
+            artifacts/Image.lz4 \
             artifacts/Module.symvers \
             artifacts/kernel.config \
             artifacts/reports/*.txt \
