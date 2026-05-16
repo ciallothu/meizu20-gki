@@ -133,6 +133,10 @@ jobs:
               count=1,
               flags=re.S,
           )
+          text = text.replace(
+              '"kmi_symbol_list_strict_mode": aarch64_trim_and_check,',
+              '"kmi_symbol_list_strict_mode": False,',
+          )
           kleaf.write_text(text)
 
           kernel_config = Path("../build/kernel/kleaf/impl/kernel_config.bzl")
@@ -187,7 +191,6 @@ jobs:
           tools/bazel build \
             --config=local \
             --verbose_failures \
-            --//build/kernel/kleaf:kmi_symbol_list_strict_mode=false \
             --action_env=KBUILD_BUILD_VERSION=1 \
             --action_env=KBUILD_BUILD_USER=build-user \
             --action_env=KBUILD_BUILD_HOST=build-host \
