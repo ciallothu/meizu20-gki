@@ -1,0 +1,34 @@
+diff --git a/kernel/module.c b/kernel/module.c
+--- a/kernel/module.c
++++ b/kernel/module.c
+@@ -1279,7 +1279,9 @@ static int check_version(const struct load_info *info,
+ 			return 1;
+ 		pr_debug("Found checksum %X vs module %lX\n",
+ 			 crcval, versions[i].crc);
+-		goto bad_version;
++		pr_warn("%s: ignoring CRC mismatch for symbol %s\n",
++			info->name, symname);
++		return 1;
+ 	}
+ 
+ 	/* Broken toolchain. Warn once, then let it go.. */
+@@ -1290,7 +1292,7 @@ static int check_version(const struct load_info *info,
+ bad_version:
+ 	pr_warn("%s: disagrees about version of symbol %s\n",
+ 	       info->name, symname);
+-	return 0;
++	return 1;
+ }
+ 
+ static inline int check_modstruct_version(const struct load_info *info,
+@@ -3316,8 +3318,8 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
+ 		}
+ 	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
+ 		pr_err("%s: version magic '%s' should be '%s'\n",
+ 		       info->name, modmagic, vermagic);
+-		return -ENOEXEC;
++		pr_warn("%s: ignoring version magic mismatch\n", info->name);
+ 	}
+ 
+ 	if (!get_modinfo(info, "intree")) {
+

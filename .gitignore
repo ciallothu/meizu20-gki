@@ -1,0 +1,14 @@
+.DS_Store
+workspace/
+out/
+artifacts/
+*.log
+*.tmp
+
+# Do not commit stock device images.
+*.img
+*.bin
+
+
+__pycache__/
+*.pyc

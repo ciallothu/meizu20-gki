@@ -1,0 +1,221 @@
+name: Build Meizu 20 GKI Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: Build strategy. auto uses branch A or B.
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - A
+          - B
+      gki_tag:
+        description: Android common kernel tag to build.
+        required: true
+        default: android13-5.15-2023-09_r1
+      create_release:
+        description: Create GitHub prerelease with artifacts.
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build strategy ${{ inputs.strategy }} on ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout build recipe
+        uses: actions/checkout@v4
+
+      - name: Resolve build strategy
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+          strategy="${{ inputs.strategy }}"
+          if [[ "${strategy}" == "auto" ]]; then
+            case "${GITHUB_REF_NAME}" in
+              B) strategy="B" ;;
+              *) strategy="A" ;;
+            esac
+          fi
+          if [[ "${strategy}" != "A" && "${strategy}" != "B" ]]; then
+            echo "Invalid strategy: ${strategy}" >&2
+            exit 1
+          fi
+          short_sha="${GITHUB_SHA::7}"
+          tag_name="pr-${GITHUB_RUN_NUMBER}-${short_sha}"
+          echo "strategy=${strategy}" >> "${GITHUB_OUTPUT}"
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+          echo "gki_tag=${{ inputs.gki_tag }}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install host dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential curl flex git libelf-dev libssl-dev \
+            lz4 python3 rsync unzip wget zip
+          mkdir -p "${HOME}/bin"
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo > "${HOME}/bin/repo"
+          chmod a+x "${HOME}/bin/repo"
+          echo "${HOME}/bin" >> "${GITHUB_PATH}"
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+      - name: Sync Android common kernel source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p workspace
+          cd workspace
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15 --depth=1
+          repo sync -c -j"$(nproc)" --no-clone-bundle --no-tags
+          cd common
+          git fetch --depth=1 https://android.googlesource.com/kernel/common "refs/tags/${{ steps.vars.outputs.gki_tag }}"
+          git checkout FETCH_HEAD
+
+      - name: Integrate SukiSU Ultra, SUSFS, and Meizu config
+        shell: bash
+        run: |
+          set -euo pipefail
+          common="${GITHUB_WORKSPACE}/workspace/common"
+          cd "${common}"
+
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          rm -rf KernelSU/.git
+          test -f drivers/kernelsu/Kconfig
+
+          susfs="${GITHUB_WORKSPACE}/workspace/susfs"
+          git clone --depth=1 -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git "${susfs}"
+          cp -r "${susfs}/kernel_patches/fs/"* fs/
+          cp -r "${susfs}/kernel_patches/include/linux/"* include/linux/
+          patch -p1 --forward --batch < "${susfs}/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
+          (
+            cd drivers/kernelsu
+            patch -p1 --forward --batch < "${susfs}/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+          )
+
+          python3 "${GITHUB_WORKSPACE}/scripts/apply_crc_override_patch.py" "${common}"
+          cp "${GITHUB_WORKSPACE}/data/original_crcs.tsv" .meizu_crc_overrides.tsv
+
+          if [[ "${{ steps.vars.outputs.strategy }}" == "B" ]]; then
+            patch -p1 --forward --batch < "${GITHUB_WORKSPACE}/patches/strategy-b/module-version-bypass.patch"
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("BUILD.bazel")
+          text = path.read_text()
+          text = text.replace("check_defconfig = True", "check_defconfig = False")
+          path.write_text(text)
+          PY
+
+          while IFS= read -r line; do
+            [[ -z "${line}" || "${line}" == \#* && "${line}" != "# CONFIG_"* ]] && continue
+            if [[ "${line}" =~ ^CONFIG_([^=]+)=y$ ]]; then
+              ./scripts/config --file arch/arm64/configs/gki_defconfig --enable "${BASH_REMATCH[1]}"
+            elif [[ "${line}" =~ ^CONFIG_([^=]+)=m$ ]]; then
+              ./scripts/config --file arch/arm64/configs/gki_defconfig --module "${BASH_REMATCH[1]}"
+            elif [[ "${line}" =~ ^#\ CONFIG_([^[:space:]]+)\ is\ not\ set$ ]]; then
+              ./scripts/config --file arch/arm64/configs/gki_defconfig --disable "${BASH_REMATCH[1]}"
+            fi
+          done < "${GITHUB_WORKSPACE}/data/meizu20.fragment"
+
+          ./scripts/config --file arch/arm64/configs/gki_defconfig --set-str LOCALVERSION "-android13-8-gdae8b7f03305-ab1764128685"
+          ./scripts/config --file arch/arm64/configs/gki_defconfig --disable LOCALVERSION_AUTO
+          ./scripts/config --file arch/arm64/configs/gki_defconfig --disable MODULE_SIG_FORCE
+
+          git add -A
+          git commit -m "Apply Meizu 20 SukiSU SUSFS integration" || true
+
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd workspace
+          tools/bazel build \
+            --verbose_failures \
+            --action_env=KBUILD_BUILD_VERSION=1 \
+            --action_env=KBUILD_BUILD_USER=build-user \
+            --action_env=KBUILD_BUILD_HOST=build-host \
+            --action_env=KBUILD_BUILD_TIMESTAMP="Tue Jan 27 20:32:22 UTC 2026" \
+            --action_env=KBUILD_CRC_OVERRIDES=.meizu_crc_overrides.tsv \
+            //common:kernel_aarch64_dist
+
+      - name: Prepare artifacts and reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist="${GITHUB_WORKSPACE}/workspace/out/kernel_aarch64/dist"
+          artifacts="${GITHUB_WORKSPACE}/artifacts"
+          reports="${artifacts}/reports"
+          mkdir -p "${artifacts}" "${reports}"
+
+          if [[ ! -f "${dist}/Image.gz" ]]; then
+            gzip -cn "${dist}/Image" > "${dist}/Image.gz"
+          fi
+          config_path="$(find "${GITHUB_WORKSPACE}/workspace/out" -type f \( -name '.config' -o -name 'kernel.config' -o -name 'kernel_aarch64_config' \) | head -n 1)"
+          if [[ -n "${config_path}" ]]; then
+            cp "${config_path}" "${artifacts}/kernel.config"
+            cp "${config_path}" "${dist}/kernel.config"
+          else
+            echo "kernel config was not found in workspace/out" > "${artifacts}/kernel.config"
+            cp "${artifacts}/kernel.config" "${dist}/kernel.config"
+          fi
+
+          cp "${dist}/Image" "${artifacts}/Image"
+          cp "${dist}/Image.gz" "${artifacts}/Image.gz"
+          cp "${dist}/Module.symvers" "${artifacts}/Module.symvers"
+
+          python3 "${GITHUB_WORKSPACE}/scripts/generate_reports.py" \
+            "${{ steps.vars.outputs.strategy }}" \
+            "${dist}" \
+            "${GITHUB_WORKSPACE}/data" \
+            "${reports}" \
+            "${{ steps.vars.outputs.gki_tag }}"
+
+          bash "${GITHUB_WORKSPACE}/scripts/package_anykernel.sh" \
+            "${{ steps.vars.outputs.strategy }}" \
+            "${dist}" \
+            "${GITHUB_WORKSPACE}" \
+            "${artifacts}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Meizu20-GKI-${{ steps.vars.outputs.strategy }}-${{ github.run_number }}
+          path: artifacts/**
+          if-no-files-found: error
+
+      - name: Create prerelease
+        if: ${{ inputs.create_release == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.vars.outputs.tag_name }}" \
+            artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip \
+            artifacts/Image \
+            artifacts/Image.gz \
+            artifacts/Module.symvers \
+            artifacts/kernel.config \
+            artifacts/reports/*.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --prerelease \
+            --title "${{ steps.vars.outputs.tag_name }} strategy ${{ steps.vars.outputs.strategy }}" \
+            --notes-file "artifacts/reports/release-notes.md"
