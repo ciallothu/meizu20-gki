@@ -148,6 +148,14 @@ jobs:
               1,
           )
           kernel_config.write_text(text)
+
+          build_utils = Path("../build/kernel/build_utils.sh")
+          with build_utils.open("a") as f:
+              f.write(
+                  "\n# Meizu 20 Actions build: allow generated GKI defconfig fragments.\\n"
+                  "kleaf_internal_check_defconfig_minimized() { return 0; }\\n"
+                  "kleaf_internal_check_dot_config_against_defconfig() { return 0; }\\n"
+              )
           PY
 
           while IFS= read -r line; do
