@@ -81,3 +81,17 @@ closed-source Meizu vendor modules need either matching CRCs or the branch B
 loader bypass. Only move to `droidspaces` or `full` after the compatibility
 kernel reaches Android userspace. The AnyKernel package only replaces the boot
 kernel and leaves `vendor_boot`, `dtbo`, and `vendor_dlkm` untouched.
+
+## Boot failure logs
+
+`compat`, `droidspaces`, and `full` enable pstore/ramoops console capture. If a
+test kernel reaches a panic path and reboots, boot back into a working kernel or
+recovery and check:
+
+```sh
+adb shell su -c 'ls -l /sys/fs/pstore; cat /sys/fs/pstore/console-ramoops* 2>/dev/null'
+```
+
+Printing directly over the MEIZU logo is usually not useful on this device
+class because the Android display stack is not a kernel text console at that
+stage.

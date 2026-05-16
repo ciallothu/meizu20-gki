@@ -102,6 +102,18 @@ apply_droidspaces_only_config() {
   ./scripts/config --file arch/arm64/configs/gki_defconfig --disable MODULE_SIG_FORCE
 }
 
+apply_boot_debug_config() {
+  for opt in \
+    PRINTK BUG KALLSYMS KALLSYMS_ALL MAGIC_SYSRQ \
+    PSTORE PSTORE_CONSOLE PSTORE_PMSG PSTORE_RAM \
+    PSTORE_DEFLATE_COMPRESS PSTORE_COMPRESS_DEFAULT_DEFLATE; do
+    ./scripts/config --file arch/arm64/configs/gki_defconfig --enable "${opt}"
+  done
+  ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val LOG_BUF_SHIFT 21
+  ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val PRINTK_SAFE_LOG_BUF_SHIFT 14
+  ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val PANIC_TIMEOUT 5
+}
+
 relax_kleaf_checks
 
 case "${feature_set}" in
@@ -111,17 +123,20 @@ case "${feature_set}" in
   compat)
     echo "[feature_set=compat] Build stock-like GKI with Meizu CRC/module compatibility only."
     apply_crc_support
+    apply_boot_debug_config
     ;;
   droidspaces)
     echo "[feature_set=droidspaces] Build Droidspaces namespace/devtmpfs features without KSU/SUSFS."
     apply_crc_support
     apply_droidspaces_only_config
+    apply_boot_debug_config
     ;;
   full)
     echo "[feature_set=full] Build SukiSU Ultra + SUSFS + Droidspaces features."
     apply_sukisu_susfs
     apply_crc_support
     apply_fragment_file
+    apply_boot_debug_config
     ;;
   *)
     echo "Unsupported feature_set=${feature_set}. Use minimal, compat, droidspaces, or full." >&2

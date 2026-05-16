@@ -97,6 +97,14 @@ def main() -> None:
         "MODULE_SIG",
         "MODULE_SIG_FORCE",
         "MODULE_SIG_ALL",
+        "PRINTK",
+        "LOG_BUF_SHIFT",
+        "PRINTK_SAFE_LOG_BUF_SHIFT",
+        "PANIC_TIMEOUT",
+        "PSTORE",
+        "PSTORE_CONSOLE",
+        "PSTORE_PMSG",
+        "PSTORE_RAM",
         "KSU",
         "KSU_SUSFS",
     ]
@@ -131,6 +139,7 @@ def main() -> None:
                 "- Stock vendor_boot, dtbo, and vendor_dlkm are not modified by this package.",
                 "",
                 "Check `reports/config-check.txt`, `reports/crc-summary.txt`, and `reports/vermagic-risk.txt` before flashing.",
+                "If the kernel reaches a panic/reboot path, check `/sys/fs/pstore/console-ramoops*` after the next successful boot.",
             ]
         )
         + "\n"
@@ -139,4 +148,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
