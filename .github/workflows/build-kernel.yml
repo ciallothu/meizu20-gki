@@ -187,10 +187,38 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip artifacts/Image artifacts/Image.gz artifacts/Image.lz4 artifacts/Module.symvers artifacts/kernel.config artifacts/boot*.img artifacts/*boot*.img artifacts/reports/*.txt)
-          gh release create "${{ steps.vars.outputs.tag_name }}" "${assets[@]}" \
+          tag="${{ steps.vars.outputs.tag_name }}"
+          declare -A seen_assets=()
+          assets=()
+          for asset in \
+            artifacts/AnyKernel3-Meizu20-${{ steps.vars.outputs.strategy }}.zip \
+            artifacts/Image \
+            artifacts/Image.gz \
+            artifacts/Image.lz4 \
+            artifacts/Module.symvers \
+            artifacts/kernel.config \
+            artifacts/boot*.img \
+            artifacts/*boot*.img \
+            artifacts/reports/*.txt; do
+            [[ -f "${asset}" ]] || continue
+            name="$(basename "${asset}")"
+            if [[ -n "${seen_assets[${name}]:-}" ]]; then
+              echo "Skipping duplicate release asset name: ${asset}"
+              continue
+            fi
+            seen_assets["${name}"]=1
+            assets+=("${asset}")
+          done
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release assets found." >&2
+            exit 1
+          fi
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete "${tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
+          fi
+          gh release create "${tag}" "${assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --prerelease \
-            --title "${{ steps.vars.outputs.tag_name }}" \
+            --title "${tag}" \
             --notes-file "artifacts/reports/release-notes.md"
