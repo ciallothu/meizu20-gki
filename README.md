@@ -60,8 +60,11 @@ gh workflow run build-kernel.yml -r B -f strategy=B -f feature_set=minimal
 Successful runs create a pre-release named:
 
 ```text
-pr-<run_number>-<short_sha>
+pr-<A|B>-<run_number>-<short_sha>
 ```
+
+The workflow removes older prereleases/tags for the same strategy before
+publishing, and also removes legacy `pr-<run_number>-<short_sha>` releases.
 
 Each release contains:
 

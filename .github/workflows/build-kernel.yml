@@ -64,10 +64,12 @@ jobs:
             exit 1
           fi
           short_sha="${GITHUB_SHA::7}"
-          tag_name="pr-${GITHUB_RUN_NUMBER}-${short_sha}"
+          tag_name="pr-${strategy}-${GITHUB_RUN_NUMBER}-${short_sha}"
+          release_title="Meizu20 GKI ${{ inputs.feature_set }} strategy ${strategy} ${tag_name}"
           echo "strategy=${strategy}" >> "${GITHUB_OUTPUT}"
           echo "feature_set=${{ inputs.feature_set }}" >> "${GITHUB_OUTPUT}"
           echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+          echo "release_title=${release_title}" >> "${GITHUB_OUTPUT}"
           echo "gki_tag=${{ inputs.gki_tag }}" >> "${GITHUB_OUTPUT}"
           echo "kernel_format=${{ inputs.kernel_format }}" >> "${GITHUB_OUTPUT}"
 
@@ -213,6 +215,25 @@ jobs:
             echo "No release assets found." >&2
             exit 1
           fi
+          strategy="${{ steps.vars.outputs.strategy }}"
+          while IFS= read -r old_tag; do
+            [[ -n "${old_tag}" ]] || continue
+            [[ "${old_tag}" == "${tag}" ]] && continue
+            echo "Deleting old prerelease: ${old_tag}"
+            gh release delete "${old_tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y || true
+          done < <(
+            gh release list --repo "${GITHUB_REPOSITORY}" --limit 100 --json tagName,isPrerelease \
+              -q ".[] | select(.isPrerelease and ((.tagName | startswith(\"pr-${strategy}-\")) or (.tagName | test(\"^pr-[0-9]+-\")))) | .tagName"
+          )
+          while IFS= read -r old_tag; do
+            [[ -n "${old_tag}" ]] || continue
+            [[ "${old_tag}" == "${tag}" ]] && continue
+            echo "Deleting orphan old tag: ${old_tag}"
+            git push --delete origin "${old_tag}" || true
+          done < <(
+            git ls-remote --tags origin "refs/tags/pr-${strategy}-*" "refs/tags/pr-[0-9]*" \
+              | awk -F/ '{print $NF}' | sed 's/\\^{}//' | sort -u
+          )
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release delete "${tag}" --repo "${GITHUB_REPOSITORY}" --cleanup-tag -y
           fi
@@ -220,5 +241,5 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --prerelease \
-            --title "${tag}" \
+            --title "${{ steps.vars.outputs.release_title }}" \
             --notes-file "artifacts/reports/release-notes.md"
