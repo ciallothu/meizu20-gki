@@ -96,6 +96,10 @@ adb shell su -c 'ls -l /sys/fs/pstore; for f in /sys/fs/pstore/*; do echo ==== $
 `dmesg-ramoops*` is more useful for panic/oops. `console-ramoops*` can show the
 last boot progress, but if the reserved ramoops memory is not protected cleanly
 by firmware or the device tree, that console ring may be partially corrupted.
+On the observed Meizu 20 stock DT, ramoops exposes a 2 MiB region at
+`0xa5100000` with `console_size=262144` but `record_size=0`; these builds patch
+ramoops to create dmesg records from the console size when the DT omits
+`record-size`.
 
 Printing directly over the MEIZU logo is usually not useful on this device
 class because the Android display stack is not a kernel text console at that

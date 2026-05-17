@@ -118,6 +118,22 @@ apply_boot_debug_config() {
   ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val PANIC_TIMEOUT 5
 }
 
+apply_meizu_ramoops_patch() {
+  python3 - <<'PY'
+from pathlib import Path
+
+path = Path("fs/pstore/ram.c")
+text = path.read_text()
+needle = """\tparse_u32(\"record-size\", pdata->record_size, 0);\n\tparse_u32(\"console-size\", pdata->console_size, 0);\n\tparse_u32(\"ftrace-size\", pdata->ftrace_size, 0);\n\tparse_u32(\"pmsg-size\", pdata->pmsg_size, 0);\n"""
+replacement = """\tparse_u32(\"record-size\", pdata->record_size, 0);\n\tparse_u32(\"console-size\", pdata->console_size, 0);\n\tparse_u32(\"ftrace-size\", pdata->ftrace_size, 0);\n\tparse_u32(\"pmsg-size\", pdata->pmsg_size, 0);\n\tif (!pdata->record_size && pdata->console_size)\n\t\tpdata->record_size = pdata->console_size;\n"""
+if replacement not in text:
+    if needle not in text:
+        raise SystemExit(f"cannot find ramoops record-size parse block in {path}")
+    text = text.replace(needle, replacement, 1)
+    path.write_text(text)
+PY
+}
+
 relax_kleaf_checks
 
 case "${feature_set}" in
@@ -128,12 +144,14 @@ case "${feature_set}" in
     echo "[feature_set=compat] Build stock-like GKI with Meizu CRC/module compatibility only."
     apply_crc_support
     apply_boot_debug_config
+    apply_meizu_ramoops_patch
     ;;
   droidspaces)
     echo "[feature_set=droidspaces] Build Droidspaces namespace/devtmpfs features without KSU/SUSFS."
     apply_crc_support
     apply_droidspaces_only_config
     apply_boot_debug_config
+    apply_meizu_ramoops_patch
     ;;
   full)
     echo "[feature_set=full] Build SukiSU Ultra + SUSFS + Droidspaces features."
@@ -141,6 +159,7 @@ case "${feature_set}" in
     apply_crc_support
     apply_fragment_file
     apply_boot_debug_config
+    apply_meizu_ramoops_patch
     ;;
   *)
     echo "Unsupported feature_set=${feature_set}. Use minimal, compat, droidspaces, or full." >&2
