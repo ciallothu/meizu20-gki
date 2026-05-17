@@ -105,6 +105,9 @@ def main() -> None:
         "PSTORE_CONSOLE",
         "PSTORE_PMSG",
         "PSTORE_RAM",
+        "PSTORE_COMPRESS",
+        "PSTORE_COMPRESS_DEFAULT",
+        "PSTORE_DEFLATE_COMPRESS",
         "KSU",
         "KSU_SUSFS",
     ]
@@ -139,7 +142,7 @@ def main() -> None:
                 "- Stock vendor_boot, dtbo, and vendor_dlkm are not modified by this package.",
                 "",
                 "Check `reports/config-check.txt`, `reports/crc-summary.txt`, and `reports/vermagic-risk.txt` before flashing.",
-                "If the kernel reaches a panic/reboot path, check `/sys/fs/pstore/console-ramoops*` after the next successful boot.",
+                "If the kernel reaches a panic/reboot path, collect every file under `/sys/fs/pstore`, especially `dmesg-ramoops*` and `console-ramoops*`.",
             ]
         )
         + "\n"

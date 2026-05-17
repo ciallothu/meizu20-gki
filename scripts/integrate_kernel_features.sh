@@ -105,9 +105,13 @@ apply_droidspaces_only_config() {
 apply_boot_debug_config() {
   for opt in \
     PRINTK BUG KALLSYMS KALLSYMS_ALL MAGIC_SYSRQ \
-    PSTORE PSTORE_CONSOLE PSTORE_PMSG PSTORE_RAM \
-    PSTORE_DEFLATE_COMPRESS PSTORE_COMPRESS_DEFAULT_DEFLATE; do
+    PSTORE PSTORE_CONSOLE PSTORE_PMSG PSTORE_RAM; do
     ./scripts/config --file arch/arm64/configs/gki_defconfig --enable "${opt}"
+  done
+  for opt in \
+    PSTORE_DEFLATE_COMPRESS PSTORE_LZO_COMPRESS PSTORE_LZ4_COMPRESS \
+    PSTORE_LZ4HC_COMPRESS PSTORE_842_COMPRESS PSTORE_ZSTD_COMPRESS; do
+    ./scripts/config --file arch/arm64/configs/gki_defconfig --disable "${opt}"
   done
   ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val LOG_BUF_SHIFT 21
   ./scripts/config --file arch/arm64/configs/gki_defconfig --set-val PRINTK_SAFE_LOG_BUF_SHIFT 14

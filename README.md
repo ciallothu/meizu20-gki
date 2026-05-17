@@ -84,13 +84,18 @@ kernel and leaves `vendor_boot`, `dtbo`, and `vendor_dlkm` untouched.
 
 ## Boot failure logs
 
-`compat`, `droidspaces`, and `full` enable pstore/ramoops console capture. If a
-test kernel reaches a panic path and reboots, boot back into a working kernel or
-recovery and check:
+`compat`, `droidspaces`, and `full` enable pstore/ramoops capture with pstore
+compression disabled so records can be inspected from a different recovery or
+kernel. If a test kernel reboots, boot back into a working kernel or recovery
+and collect every pstore record:
 
 ```sh
-adb shell su -c 'ls -l /sys/fs/pstore; cat /sys/fs/pstore/console-ramoops* 2>/dev/null'
+adb shell su -c 'ls -l /sys/fs/pstore; for f in /sys/fs/pstore/*; do echo ==== $f ====; cat "$f"; done' > pstore.txt
 ```
+
+`dmesg-ramoops*` is more useful for panic/oops. `console-ramoops*` can show the
+last boot progress, but if the reserved ramoops memory is not protected cleanly
+by firmware or the device tree, that console ring may be partially corrupted.
 
 Printing directly over the MEIZU logo is usually not useful on this device
 class because the Android display stack is not a kernel text console at that
